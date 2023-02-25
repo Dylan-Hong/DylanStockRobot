@@ -201,11 +201,6 @@ Fail_yf = []
 Fail_Realtime = []
 BreakoutList = []
 FirstBreakoutList = []
-CountAll = 0
-CountBreak = 0
-CountNotBreak = 0
-CountNoVol = 0
-CountStock = 0
 
 def Breakout():
     start_time = time.time()
