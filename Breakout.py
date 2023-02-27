@@ -324,4 +324,4 @@ def Breakout():
     elapsed_time = end_time - start_time
     print(f"程式執行時間為 {elapsed_time:.2f} 秒")
 
-Breakout()
+#Breakout()
