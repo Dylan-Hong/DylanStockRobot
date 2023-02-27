@@ -1,0 +1,15 @@
+os
+requests
+pandas as pd
+numpy
+pickle
+yfinance
+matplotlib.pyplot
+talib
+math
+re
+requests
+datetime
+twstock
+time
+
