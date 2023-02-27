@@ -31,3 +31,5 @@ Linux
 ```
 sudo yum install python3-devel
 ```
+# 更新紀錄
+* 2023/2/27 新增FLASK設定以及README.md 對於安裝TA-lib的說明
