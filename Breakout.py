@@ -5,7 +5,6 @@ import numpy as np
 import pickle
 import yfinance as yf 
 import matplotlib.pyplot as plt
-import talib
 import math
 import re
 import requests
@@ -216,10 +215,10 @@ def Breakout():
     end_date = dt.date.today()
     start_date = end_date - dt.timedelta(days=100)
     # 搜尋特定股票
-    # StockNumList = ['3114.TWO']
+    # StockNumList = ['1907.TW']
 
     # 搜尋所有股票
-    for StockIndex in range( 0, int(len( StockNumList )) ):
+    for StockIndex in range( 0, int( len( StockNumList ) ) ):
         TargetStockNo = StockNumList[StockIndex]
         TargetStockName = StockNameList[StockIndex]
         CountAll += 1
@@ -269,8 +268,10 @@ def Breakout():
             Found.append(TargetStockName)
         # 計算均值獲最大值
         # 用talib畫出均線
-        df_data[ 'MA_5' ] = talib.SMA(np.array(df_data['Close']), 5)
-        df_data[ 'MA_20' ] = talib.SMA(np.array(df_data['Close']), 20)
+        # df_data[ 'MA_5' ] = talib.SMA(np.array(df_data['Close']), 5)
+        # df_data[ 'MA_20' ] = talib.SMA(np.array(df_data['Close']), 20)
+        df_data[ 'MA_5' ] = df_data['Close'].rolling(5).mean()
+        df_data[ 'MA_20' ] = df_data['Close'].rolling(20).mean()
         df_data[ 'Vol_5ma'] = df_data['Volume'].rolling(5).mean()
         df_data['max_Price'] = df_data['High'].rolling(window=40).max()
         # 計算收盤價的20天標準差
@@ -295,7 +296,7 @@ def Breakout():
         # 條件1 : 成交量出量
         Cond1 = Volume_RT > Volume_5MA * RefVolume
         # 條件2 : 40日以來最高價
-        Cond2 = Price_RT > Price_High
+        Cond2 = Price_RT >= Price_High
         # 條件3 : 五日線/二十日線 < 1.02 -> 確保均線靠近
         Cond3 = Price_5MA / Price_20MA < 1.02
         # 條件4 : 二十日的布林帶寬最大值小於0.09
@@ -308,7 +309,7 @@ def Breakout():
                 FirstBreakoutList.append(TargetStockName)
         else:
             CountNotBreak += 1
-        # print( "FailCondition = ", bin( Cond1 | Cond2 << 1 | Cond3 << 2 | Cond4 << 3 | Cond5 << 3 ) )
+        # print( "FailCondition = ", bin( Cond1 | Cond2 << 1 | Cond3 << 2 | Cond4 << 3 ) )
 
         # 每掃100隻印一次出來
         if CountAll % 100 == 0:
