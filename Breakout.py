@@ -12,6 +12,7 @@ import datetime as dt
 from datetime import datetime
 import twstock
 import time
+import json
 
 # todo : mutli-thread
 def renew_data():
@@ -195,11 +196,16 @@ def getVolumnRef():
         RefVolume = 2
     return RefVolume
 
+GetStockAmount = 10
 Found = []
 Fail_yf = []
 Fail_Realtime = []
 BreakoutList = []
 FirstBreakoutList = []
+Price_RT = [0] * GetStockAmount
+Volume_RT = [0] * GetStockAmount
+dfs = [pd.DataFrame() for _ in range(GetStockAmount)]
+ErrorIndex = [0] * GetStockAmount # 若整批讀取的過程有錯誤，on起來標注那個錯誤
 
 def Breakout():
     start_time = time.time()
@@ -208,121 +214,158 @@ def Breakout():
     CountNotBreak = 0
     CountNoVol = 0
     CountStock = 0
-    A = renew_data()
+    # A = renew_data()
+    with open("data.json", "r") as f:
+        A = json.load(f)
     StockNumList = list(A.keys())
     StockNameList = list(A.values())
+    RefVolume = getVolumnRef()
     # 設定時間
     end_date = dt.date.today()
     start_date = end_date - dt.timedelta(days=100)
+    yftimeAll = 0
+    yftimestart = 0
+    yfrealtimeAll = 0
+    yfrealtimestart = 0
     # 搜尋特定股票
     # StockNumList = ['1907.TW']
 
     # 搜尋所有股票
-    for StockIndex in range( 0, int( len( StockNumList ) ) ):
-        TargetStockNo = StockNumList[StockIndex]
-        TargetStockName = StockNameList[StockIndex]
-        CountAll += 1
-        # 跳過ETF跟權證
-        if len(TargetStockNo.split('.')[0]) != 4 :
-            continue
-        else:
-            CountStock += 1
+    for StockGroupIndex in range( 0, int( len( StockNumList ) / GetStockAmount ) ):
+        ErrorIndex = [0] * GetStockAmount
 
-        # 1.撈即時資料
-        try:
-            # 建立一個股票物件
-            stock = yf.Ticker(TargetStockNo) # xxxx.TW
+        # 跳過權證跟etf
+        TargetStockNo = StockNumList[StockGroupIndex * GetStockAmount + StockIndex]
+        TargetStockName = StockNameList[StockGroupIndex * GetStockAmount + StockIndex]
+        # 處理當天資料
+        for StockIndex in range( 0, GetStockAmount ):
+            TargetStockNo = StockNumList[StockGroupIndex * GetStockAmount + StockIndex]
+            TargetStockName = StockNameList[StockGroupIndex * GetStockAmount + StockIndex]
+            CountAll += 1
+            # 跳過ETF跟權證
+            if len(TargetStockNo.split('.')[0]) != 4 :
+                ErrorIndex[StockIndex] = 1
+                continue
+            else:
+                CountStock += 1
 
-            # 獲取即時股價和成交量資料
-            stock_Realtime = stock.history(period="1d")
+            # 1.撈即時資料
+            try:
+                yfrealtimestart = time.time()
+                # 建立一個股票物件
+                stock = yf.Ticker(TargetStockNo) # xxxx.TW
 
-            # 給需要計算數值變數
-            # 當下價格
-            Price_RT = float(stock_Realtime['Close'][0])
-            # 當下成交量
-            Volume_RT = float(stock_Realtime['Volume'][0]) # 單位為股
+                # 獲取即時股價和成交量資料
+                stock_Realtime = stock.history(period="1d")
+                yfrealtimeAll = time.time() - yfrealtimestart + yfrealtimeAll
 
-        except (ValueError, KeyError, IndexError, TypeError) as e:
-            # 如果讀取失敗，輸出錯誤訊息
-            print("讀取資料失敗: ", e)
-            Fail_Realtime.append(TargetStockName)
-            continue
+                # 給需要計算數值變數
+                # 當下價格
+                Price_RT[StockIndex] = float(stock_Realtime['Close'][0])
+                # 當下成交量
+                Volume_RT[StockIndex] = float(stock_Realtime['Volume'][0]) # 單位為股
 
-        # 初步篩選：篩選最低成交量，10點前 < 140張，收盤前 < 400張，直接跳過
-        if CountAll % 100 == 1:
-            RefVolume = getVolumnRef()
-        if Volume_RT < RefVolume * 200 * 1000:
-            CountNoVol += 1
-            continue
+            except (ValueError, KeyError, IndexError, TypeError) as e:
+                # 如果讀取失敗，輸出錯誤訊息
+                print("讀取資料失敗: ", e)
+                Fail_Realtime.append(TargetStockName)
+                ErrorIndex[StockIndex] = 1
+                continue
+
+        # # 初步篩選：篩選最低成交量，10點前 < 140張，收盤前 < 400張，直接跳過
+        # if CountAll % 100 == 1:
+        #     RefVolume = getVolumnRef()
+        # if Volume_RT < RefVolume * 200 * 1000:
+        #     CountNoVol += 1
+        #     continue
 
         # 2.撈歷史資料
+        # 一次撈一批歷史資料
+        TargetStockNoGroup = StockNumList[ StockGroupIndex * GetStockAmount : ( StockGroupIndex + 1 ) * GetStockAmount ]
+        yftimestart = time.time()
+        df_data = yf.download(TargetStockNoGroup, start=start_date, end=end_date)
+        yftimeAll = time.time() - yftimestart + yftimeAll
+        # 各自跑回圈計算
+        for StockIndex in range( 0, GetStockAmount ) :
+            # 若real time就判斷失敗，跳過
+            if ErrorIndex[StockIndex] == 1: 
+                continue
+            TargetStockNo = StockNumList[StockGroupIndex * GetStockAmount + StockIndex]
+            TargetStockName = StockNameList[StockGroupIndex * GetStockAmount + StockIndex]
+            # 把當前要搜尋的股票放到df
+            df = pd.DataFrame()
+            df['Open'] = df_data['Open'][StockNumList[StockGroupIndex * GetStockAmount + StockIndex]]
+            df['High'] = df_data['High'][StockNumList[StockGroupIndex * GetStockAmount + StockIndex]]
+            df['Low'] = df_data['Low'][StockNumList[StockGroupIndex * GetStockAmount + StockIndex]]
+            df['Close'] = df_data['Close'][StockNumList[StockGroupIndex * GetStockAmount + StockIndex]]
+            df['Volume'] = df_data['Volume'][StockNumList[StockGroupIndex * GetStockAmount + StockIndex]]
 
-        # download會回傳dataframe的資料
-        print(TargetStockNo)
-        df_data = yf.download(TargetStockNo, start=start_date, end=end_date)
-        # 若yfinance找不到，跳過
-        if df_data.empty:
-            Fail_yf.append(TargetStockName)
-            continue
-        else:
-            Found.append(TargetStockName)
-        # 計算均值獲最大值
-        # 用talib畫出均線
-        # df_data[ 'MA_5' ] = talib.SMA(np.array(df_data['Close']), 5)
-        # df_data[ 'MA_20' ] = talib.SMA(np.array(df_data['Close']), 20)
-        df_data[ 'MA_5' ] = df_data['Close'].rolling(5).mean()
-        df_data[ 'MA_20' ] = df_data['Close'].rolling(20).mean()
-        df_data[ 'Vol_5ma'] = df_data['Volume'].rolling(5).mean()
-        df_data['max_Price'] = df_data['High'].rolling(window=40).max()
-        # 計算收盤價的20天標準差
-        df_data["Close_std"] = df_data["Close"].rolling(window=20).std()
-        # 布林帶寬
-        df_data["BW"] = df_data["Close_std"] * 4.2 / df_data['MA_20']
-        df_data['max_BWIn20'] = df_data['BW'].rolling(window=20).max()
+            # print(TargetStockNo)
 
-        # 給需要計算數值變數
-        # 5日均量
-        Volume_5MA = float(df_data['Vol_5ma'].tail(1))
-        # 近日最高價格
-        Price_High = float(df_data['max_Price'].tail(1))
-        # 5日均價
-        Price_5MA = float(df_data['MA_5'].tail(1))
-        # 20日均價
-        Price_20MA = float(df_data['MA_20'].tail(1))
-        # 前10天布林帶寬最大值
-        BW_MaxIn20 = float(df_data['max_BWIn20'].tail(1))
+            # 檢查每個元素是否為NaN
+            is_nan = df.isna()
+            # 檢查所有元素是否都是NaN
+            all_nan = is_nan.all().all()
+            if all_nan:
+                Fail_yf.append(TargetStockName)
+                continue
+            else:
+                Found.append(TargetStockName)
+
+            # 計算均值 or 最大值
+            df[ 'MA_5' ] = df['Close'].rolling(5).mean()
+            df[ 'MA_20' ] = df['Close'].rolling(20).mean()
+            df[ 'Vol_5ma'] = df['Volume'].rolling(5).mean()
+            df['max_Price'] = df['High'].rolling(window=40).max()
+            # 計算收盤價的20天標準差
+            df["Close_std"] = df["Close"].rolling(window=20).std()
+            # 布林帶寬
+            df["BW"] = df["Close_std"] * 4.2 / df['MA_20']
+            df['max_BWIn20'] = df['BW'].rolling(window=20).max()
+
+            # 給需要計算數值變數
+            # 5日均量
+            Volume_5MA = float(df['Vol_5ma'].tail(1))
+            # 近日最高價格
+            Price_High = float(df['max_Price'].tail(1))
+            # 5日均價
+            Price_5MA = float(df['MA_5'].tail(1))
+            # 20日均價
+            Price_20MA = float(df['MA_20'].tail(1))
+            # 前10天布林帶寬最大值
+            BW_MaxIn20 = float(df['max_BWIn20'].tail(1))
 
 
-        # 條件1 : 成交量出量
-        Cond1 = Volume_RT > Volume_5MA * RefVolume
-        # 條件2 : 40日以來最高價
-        Cond2 = Price_RT >= Price_High
-        # 條件3 : 五日線/二十日線 < 1.02 -> 確保均線靠近
-        Cond3 = Price_5MA / Price_20MA < 1.02
-        # 條件4 : 二十日的布林帶寬最大值小於0.09
-        Cond4 = BW_MaxIn20 < 0.09
+            # 條件1 : 成交量出量
+            Cond1 = Volume_RT[StockIndex] > Volume_5MA * RefVolume
+            # 條件2 : 40日以來最高價
+            Cond2 = Price_RT[StockIndex] >= Price_High
+            # 條件3 : 五日線/二十日線 < 1.02 -> 確保均線靠近
+            Cond3 = Price_5MA / Price_20MA < 1.02
+            # 條件4 : 二十日的布林帶寬最大值小於0.09
+            Cond4 = BW_MaxIn20 < 0.09
 
-        if Cond1 and Cond2:
-            BreakoutList.append(TargetStockName)
-            CountBreak += 1
-            if Cond3 and Cond4:
-                FirstBreakoutList.append(TargetStockName)
-        else:
-            CountNotBreak += 1
-        # print( "FailCondition = ", bin( Cond1 | Cond2 << 1 | Cond3 << 2 | Cond4 << 3 ) )
+            if Cond1 and Cond2:
+                BreakoutList.append(TargetStockName)
+                CountBreak += 1
+                if Cond3 and Cond4:
+                    FirstBreakoutList.append(TargetStockName)
+            else:
+                CountNotBreak += 1
+            # print( "FailCondition = ", bin( Cond1 | Cond2 << 1 | Cond3 << 2 | Cond4 << 3 ) )
 
-        # 每掃100隻印一次出來
-        if CountAll % 100 == 0:
+        # 每掃400隻印一次出來
+        if CountAll % 400 == 0:
             print('Breakout = ', BreakoutList)
             print('FirstBreakoutList = ', FirstBreakoutList)
 
     print('Breakout = ', BreakoutList)
     print('FirstBreakoutList = ', FirstBreakoutList)
     print("Fail_yf = ", Fail_yf)
-    print("Fail_Fail_Realtime = ", Fail_Realtime)
+    print("Fail_Realtime = ", Fail_Realtime)
     print("CountBreak = ", CountBreak, ", CountNotBreak = ", CountNotBreak, "CountStock = ", CountStock , "CountNoVol = ", CountNoVol, "CountAll = ", CountAll)
     end_time = time.time()
     elapsed_time = end_time - start_time
-    print(f"程式執行時間為 {elapsed_time:.2f} 秒")
+    print(f"程式執行時間為 {elapsed_time:.2f} 秒", f"yf執行時間為 {yftimeAll:.2f} 秒", f"realtime執行時間為 {yfrealtimeAll:.2f} 秒")
 
 Breakout()
