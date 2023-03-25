@@ -14,7 +14,10 @@ import twstock
 import time
 import json
 
-# todo : mutli-thread
+def LoadStockList():
+    with open("data.json", "r") as f:
+        StockList_Dict = json.load(f)
+    return list(StockList_Dict.keys()), list(StockList_Dict.values())
 def renew_data():
     # filepath = "./Output.pkl"
     # while os.path.isfile(filepath):
@@ -169,17 +172,16 @@ def renew_data():
     return Output
 
 def GenListJson():
-    A = renew_data()
+    AllList = renew_data()
 
-    StockNumList = list(A.keys())
-    StockNameList = list(A.values())
+    StockNumList = list(AllList.keys())
 
     for Num in StockNumList:
         if len(Num.split('.')[0]) != 4:
-            del A[Num]
+            del AllList[Num]
 
     with open("data.json", "w") as f:
-        json.dump(A, f)
+        json.dump(AllList, f)
     with open("data.json", "r") as f:
         data = json.load(f)
 
@@ -213,7 +215,7 @@ def getVolumnRef():
         RefVolume = 2
     return RefVolume
 
-GetStockAmount = 500
+GetStockAmount = 10
 Found = []
 Fail_yf = []
 Fail_Realtime = []
@@ -233,11 +235,8 @@ def Breakout():
     TargetNum = 0 # 代表當前這個Target list裡面有多少股票
     ErrorIndex = [0] * GetStockAmount
 
-    # A = renew_data()
-    with open("data.json", "r") as f:
-        A = json.load(f)
-    StockNumList = list(A.keys())
-    StockNameList = list(A.values())
+    # 讀取股票清單
+    StockNumList, StockNameList = LoadStockList()
     RefVolume = getVolumnRef()
     # 設定時間
     end_date = dt.date.today() + dt.timedelta(days=1) # 因為yfinance只會抓end date的前一天
@@ -252,7 +251,7 @@ def Breakout():
     TargetStockNumList = []
     TargetStockNameList = []
     # 搜尋所有股票
-    for AllListIndex in range( 0, int( len( StockNumList ) ) ):
+    for AllListIndex in range( 0, int( len( StockNumList )/80 ) ):
 
         # 跳過權證跟etf，這邊用代號是不是4碼來簡單判斷
         if len(StockNumList[AllListIndex].split('.')[0]) != 4 :
