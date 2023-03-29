@@ -14,13 +14,75 @@ import twstock
 import time
 import json
 
-def LoadStockList():
-    with open("data.json", "r") as f:
-        StockList_Dict = json.load(f)
-    return list(StockList_Dict.keys()), list(StockList_Dict.values())
+
+class cParam():
+    def __init__(self):
+        # 需要設定的參數
+        self.GetStockAmount = 100
+        self.RefVolume = self.getVolumnRef()
+        # 計算用的變數
+        self.CountBreak = 0
+        self.TargetNum = 0
+        self.TargetStockNumList = []
+        self.TargetStockNameList = []
+        # 記錄執行時間
+        self.start_time = time.time()
+        # 設定時間
+        self.end_date = dt.date.today() + dt.timedelta(days=1) # 因為yfinance只會抓end date的前一天，所以+1才變當天
+        self.start_date = self.end_date - dt.timedelta(days=100)
+        self.AccTime_yf = 0
+        self.StartTime_yf = 0
+        # 讀取股票清單
+        self.StockNumList, self.StockNameList = self.LoadStockList()
+
+    def getVolumnRef(self):
+        now = datetime.now()
+        nine_am = datetime(now.year, now.month, now.day, 9, 0, 0)
+
+        # 若時間為開盤後
+        if now > nine_am:
+            time_diff = now - nine_am
+            time_diff_minutes = time_diff.total_seconds() // 60
+        #若時間為開盤前
+        else:
+            time_diff_minutes = 270 # 未開盤因為沒當天資料，因此當作收盤了
+
+        # 設定開盤區間與收盤前時間跟比例
+        Time1 = 60
+        Volume1 = 0.7
+        Time2 = 180
+        Volume2 = 1.2
+        Final_Volune = 2
+        if time_diff_minutes >= 0 and time_diff_minutes <= Time1:
+            RefVolume = Volume1 * ( 1 - np.exp(-time_diff_minutes / 20) )
+        elif time_diff_minutes > Time1 and time_diff_minutes <= Time2:
+            RefVolume = Volume1 + ( Volume2 - Volume1 )/( Time2 - Time1 ) * ( time_diff_minutes - Time1 )
+        elif time_diff_minutes > Time2 and time_diff_minutes <= 270:
+            RefVolume = Volume2 + (Final_Volune - Volume2) * np.exp( (time_diff_minutes - 270) / 20 )
+        else:
+            RefVolume = 2
+        return RefVolume
+
+    def LoadStockList(self):
+        with open("data.json", "r") as f:
+            StockList_Dict = json.load(f)
+        return list(StockList_Dict.keys()), list(StockList_Dict.values())
+
+    def resetTargetList(self):
+        # reset Target list相關參數
+        self.TargetNum = 0
+        self.TargetStockNumList = []
+        self.TargetStockNameList = []
+
+class cOutputData():
+    def __init__(self):
+        self.Found = []
+        self.Fail_yf = []
+        self.BreakoutList = []
+        self.FirstBreakoutList = []
 
 # 根據價量算出需要用的指標
-def CalcIndicator( df: pd.DataFrame, StockIndex ):
+def CalcIndicator( df: pd.DataFrame ):
     # 計算均值 or 最大值
     df[ 'MA_5' ] = df['Close'].rolling(5).mean()
     df[ 'MA_20' ] = df['Close'].rolling(20).mean()
@@ -33,7 +95,7 @@ def CalcIndicator( df: pd.DataFrame, StockIndex ):
     df['max_BWIn20'] = df['BW'].rolling(window=20).max()
 
 # 判斷是否為突破
-def CalcCondition( df : pd.DataFrame, StockIndex, TargetStockNameList : list ):
+def CalcCondition( df : pd.DataFrame, StockIndex, AllParam : cParam, OutputData : cOutputData ):
 
     # 取出當天資料
     # 當下價格
@@ -54,7 +116,7 @@ def CalcCondition( df : pd.DataFrame, StockIndex, TargetStockNameList : list ):
     BW_MaxIn20 = float(df.iloc[-2]['max_BWIn20'])
 
     # 條件1 : 成交量出量
-    Cond1 = Volume_RT > Volume_5MA * RefVolume
+    Cond1 = Volume_RT > Volume_5MA * AllParam.RefVolume
     # 條件2 : 40日以來最高價
     Cond2 = Price_RT >= Price_High
     # 條件3 : 五日線/二十日線 < 1.02 -> 確保均線靠近
@@ -64,124 +126,79 @@ def CalcCondition( df : pd.DataFrame, StockIndex, TargetStockNameList : list ):
 
     global CountBreak
     if Cond1 and Cond2:
-        BreakoutList.append(TargetStockNameList[StockIndex])
-        CountBreak += 1
+        OutputData.BreakoutList.append(AllParam.TargetStockNameList[StockIndex])
+        AllParam.CountBreak += 1
         if Cond3 and Cond4:
-            FirstBreakoutList.append(TargetStockNameList[StockIndex])
+            OutputData.FirstBreakoutList.append(AllParam.TargetStockNameList[StockIndex])
     # print( "FailCondition = ", bin( Cond1 | Cond2 << 1 | Cond3 << 2 | Cond4 << 3 ) )
 
 # 計算單一隻股票是否突破
-def CalcOneStock( df_AllData : pd.DataFrame, TargetStockNumList : list, TargetStockNameList : list, StockIndex ):
+def CalcOneStock( df_AllData : pd.DataFrame, AllParam : cParam, OutputData : cOutputData, StockIndex ):
+
     # 把當前要搜尋的股票放到df
     df = pd.DataFrame()
-    df['Open'] = df_AllData['Open'][TargetStockNumList[StockIndex]]
-    df['High'] = df_AllData['High'][TargetStockNumList[StockIndex]]
-    df['Low'] = df_AllData['Low'][TargetStockNumList[StockIndex]]
-    df['Close'] = df_AllData['Close'][TargetStockNumList[StockIndex]]
-    df['Volume'] = df_AllData['Volume'][TargetStockNumList[StockIndex]]
+    df['Open'] = df_AllData['Open'][AllParam.TargetStockNumList[StockIndex]]
+    df['High'] = df_AllData['High'][AllParam.TargetStockNumList[StockIndex]]
+    df['Low'] = df_AllData['Low'][AllParam.TargetStockNumList[StockIndex]]
+    df['Close'] = df_AllData['Close'][AllParam.TargetStockNumList[StockIndex]]
+    df['Volume'] = df_AllData['Volume'][AllParam.TargetStockNumList[StockIndex]]
 
     # 檢查每個元素是否為NaN，代表下載資料失敗
     is_nan = df.isna()
     # 檢查所有元素是否都是NaN
     all_nan = is_nan.all().all()
     if all_nan:
-        Fail_yf.append(TargetStockNameList[StockIndex])
+        OutputData.Fail_yf.append(AllParam.TargetStockNameList[StockIndex])
         return
     else:
-        Found.append(TargetStockNameList[StockIndex])
+        OutputData.Found.append(AllParam.TargetStockNameList[StockIndex])
 
-    CalcIndicator(df, StockIndex)
-    CalcCondition(df, StockIndex, TargetStockNameList)
-
-def getVolumnRef():
-    now = datetime.now()
-    nine_am = datetime(now.year, now.month, now.day, 9, 0, 0)
-
-    # 若時間為開盤後
-    if now > nine_am:
-        time_diff = now - nine_am
-        time_diff_minutes = time_diff.total_seconds() // 60
-    #若時間為開盤前
-    else:
-        time_diff_minutes = 270 # 未開盤因為沒當天資料，因此當作收盤了
-
-    # 設定開盤區間與收盤前時間跟比例
-    Time1 = 60
-    Volume1 = 0.7
-    Time2 = 180
-    Volume2 = 1.2
-    Final_Volune = 2
-    if time_diff_minutes >= 0 and time_diff_minutes <= Time1:
-        RefVolume = Volume1 * ( 1 - np.exp(-time_diff_minutes / 20) )
-    elif time_diff_minutes > Time1 and time_diff_minutes <= Time2:
-        RefVolume = Volume1 + ( Volume2 - Volume1 )/( Time2 - Time1 ) * ( time_diff_minutes - Time1 )
-    elif time_diff_minutes > Time2 and time_diff_minutes <= 270:
-        RefVolume = Volume2 + (Final_Volune - Volume2) * np.exp( (time_diff_minutes - 270) / 20 )
-    else:
-        RefVolume = 2
-    return RefVolume
-
-GetStockAmount = 100
-Found = []
-Fail_yf = []
-BreakoutList = []
-FirstBreakoutList = []
-CountBreak = 0
-RefVolume = getVolumnRef()
+    CalcIndicator(df)
+    CalcCondition(df, StockIndex, AllParam, OutputData)
 
 def Breakout():
-    # 記錄執行時間
-    start_time = time.time()
-    # 讀取股票清單
-    StockNumList, StockNameList = LoadStockList()
-    # 設定時間
-    end_date = dt.date.today() + dt.timedelta(days=1) # 因為yfinance只會抓end date的前一天，所以+1才變當天
-    start_date = end_date - dt.timedelta(days=100)
-    AccTime_yf = 0
-    StartTime_yf = 0
-    # 搜尋特定股票，因yfinance回傳格式，至少要兩隻
-    # StockNumList = StockNameList = ['6485.TWO', "3105.TWO"]
+    AllParam = cParam()
+    OutputData = cOutputData()
 
-    TargetNum = 0
-    TargetStockNumList = []
-    TargetStockNameList = []
+
+    # 搜尋特定股票，因yfinance回傳格式，至少要兩隻
+    # AllParam.StockNumList = AllParam.StockNameList = ['6485.TWO', "3105.TWO"]
+
+
     # 搜尋所有股票
-    for AllListIndex in range( 0, int( len( StockNumList ) ) ):
+    for AllListIndex in range( 0, int( len( AllParam.StockNumList ) ) ):
         # 把完整list的股票逐一塞到target內
-        TargetStockNumList.append( StockNumList[AllListIndex] )
-        TargetStockNameList.append( StockNameList[AllListIndex] )
-        TargetNum += 1
+        AllParam.TargetStockNumList.append( AllParam.StockNumList[AllListIndex] )
+        AllParam.TargetStockNameList.append( AllParam.StockNameList[AllListIndex] )
+        AllParam.TargetNum += 1
 
         # 把TargetList塞到想要的數量或是整個list跑完了，才繼續做後面的計算
-        if len(TargetStockNumList) < GetStockAmount and AllListIndex != (int( len( StockNumList ) ) - 1):
+        if len(AllParam.TargetStockNumList) < AllParam.GetStockAmount and AllListIndex != (int( len( AllParam.StockNumList ) ) - 1):
             continue
         else:
             pass
 
         # 2.撈歷史資料
         # 一次撈一批歷史資料
-        StartTime_yf = time.time()
-        df_data = yf.download(TargetStockNumList, start=start_date, end=end_date)
-        AccTime_yf = time.time() - StartTime_yf + AccTime_yf
+        AllParam.StartTime_yf = time.time()
+        df_data = yf.download(AllParam.TargetStockNumList, start=AllParam.start_date, end=AllParam.end_date)
+        AllParam.AccTime_yf = time.time() - AllParam.StartTime_yf + AllParam.AccTime_yf
         # 各自跑迴圈計算
-        for StockIndex in range( 0, len(TargetStockNumList) ) :
-            CalcOneStock(df_data, TargetStockNumList, TargetStockNameList, StockIndex)
+        for StockIndex in range( 0, len(AllParam.TargetStockNumList) ) :
+            CalcOneStock(df_data, AllParam, OutputData, StockIndex)
 
-        # reset Target list相關參數
-        TargetNum = 0
-        TargetStockNumList = []
-        TargetStockNameList = []
+        AllParam.resetTargetList()
 
         # 每掃600隻印一次出來
         if AllListIndex % 600 == 599:
-            print('Breakout = ', BreakoutList)
-            print('FirstBreakoutList = ', FirstBreakoutList)
+            print('Breakout = ', OutputData.BreakoutList)
+            print('FirstBreakoutList = ', OutputData.FirstBreakoutList)
 
-    print('Breakout = ', BreakoutList)
-    print('FirstBreakout = ', FirstBreakoutList)
-    print("Fail_yf = ", Fail_yf)
-    print("CountBreak = ", CountBreak)
+    print('Breakout = ', OutputData.BreakoutList)
+    print('FirstBreakout = ', OutputData.FirstBreakoutList)
+    print("Fail_yf = ", OutputData.Fail_yf)
+    print("CountBreak = ", AllParam.CountBreak)
     end_time = time.time()
-    print(f"程式執行時間為 {(end_time - start_time):.2f} 秒", f"yf執行時間為 {AccTime_yf:.2f} 秒")
+    print(f"程式執行時間為 {(end_time - AllParam.start_time):.2f} 秒", f"yf執行時間為 {AllParam.AccTime_yf:.2f} 秒")
 
 Breakout()
