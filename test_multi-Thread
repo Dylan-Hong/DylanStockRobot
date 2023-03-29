@@ -1,0 +1,255 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import threading
+import yfinance as yf1
+import yfinance as yf2
+import yfinance as yf3
+import yfinance as yf4
+import yfinance as yf5
+import requests
+import pandas as pd
+import pickle
+import time
+# from datetime import datetime
+import datetime
+
+# ----------------------------------------multi-thread----------------------
+def renew_data():
+    # filepath = "./Output.pkl"
+    # while os.path.isfile(filepath):
+    #     os.remove(r"./Input.pkl")
+    #     os.remove(r"./r_Input.pkl")
+    #     os.remove(r"./Output.pkl")
+    #     os.remove(r"./r_Output.pkl")
+    
+    #上市資料
+    EFurl = 'https://www.twse.com.tw/fund/TWT38U?response=json&date=&_=1644690000895'
+    res = requests.get(EFurl)
+    data = res.json()
+    data_all = data['data']
+
+    df_all = []
+    for i in range (len(data_all)):
+        get0=[]
+        for j in range(1,3):
+            get0.append(data_all[i][j])
+        df_all.append(get0)
+
+        result = []
+    for i in range(len(df_all)):
+        result0=[]
+        for j in range(0,2):
+            result0.append(df_all[i][j].replace(" ",""))
+        result.append(result0)
+
+    df_all = result
+    df_LN= pd.DataFrame(df_all, columns=["ID", "Name"] )
+    df_LN['ID'] = df_LN['ID'].astype(str)
+    aL_InputNam = zip(df_LN['Name'], df_LN['ID']+".TW")
+    aL_InputNum = zip(df_LN['ID'], df_LN['ID']+".TW")
+    aL_Output = zip(df_LN['ID']+".TW", df_LN['Name'] + "("+ df_LN['ID']+")")
+
+    L_InputNam = dict(aL_InputNam)
+    L_InputNum = dict(aL_InputNum)
+    L_Output = dict(aL_Output)
+
+    ##上櫃資料
+
+    url = 'https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&se=EW&t=D&_=1659636941450'
+    res = requests.get(url)
+    data = res.json()
+    data_all = data['aaData']
+    df_all = []
+    for i in range (len(data_all)):
+        get0=[]
+        for j in range(0,2):
+            get0.append(data_all[i][j])
+        df_all.append(get0)
+
+        result = []
+    for i in range(len(df_all)):
+        result0=[]
+        for j in range(0,2):
+            result0.append(df_all[i][j].replace(" ",""))
+        result.append(result0)
+
+    df_all = result
+    df_ON= pd.DataFrame(df_all, columns=["ID", "Name"] )
+    df_ON['ID'] = df_ON['ID'].astype(str)
+    aO_InputNam = zip(df_ON['Name'],df_ON['ID']+".TWO")
+    aO_InputNum = zip(df_ON['ID'], df_ON['ID']+".TWO")
+    aO_Output = zip(df_ON['ID']+".TWO", df_ON['Name'] + "("+df_ON['ID']+")")
+
+    O_InputNam = dict(aO_InputNam)
+    O_InputNum = dict(aO_InputNum)
+    O_Output = dict(aO_Output)
+
+    #merge
+    ################
+    Input = {**L_InputNam, **L_InputNum, **O_InputNam, **O_InputNum}
+    a_file = open('Input.pkl', "wb")
+    pickle.dump(Input, a_file)
+    a_file.close()
+
+    Output = {**L_Output, **O_Output}
+
+    a_file = open('Output.pkl', "wb")
+    pickle.dump(Output, a_file)
+    a_file.close()
+    #################
+    #################
+     #上市資料
+    EFurl = 'https://www.twse.com.tw/fund/TWT38U?response=json&date=&_=1644690000895'
+    res = requests.get(EFurl)
+    data = res.json()
+    data_all = data['data']
+
+    df_all = []
+    for i in range (len(data_all)):
+        get0=[]
+        for j in range(1,3):
+            get0.append(data_all[i][j])
+        df_all.append(get0)
+
+        result = []
+    for i in range(len(df_all)):
+        result0=[]
+        for j in range(0,2):
+            result0.append(df_all[i][j].replace(" ",""))
+        result.append(result0)
+
+    df_all = result
+    df_LN= pd.DataFrame(df_all, columns=["ID", "Name"] )
+    df_LN['ID'] = df_LN['ID'].astype(str)
+    aL_InputNam = zip(df_LN['Name'], df_LN['ID'])
+    aL_InputNum = zip(df_LN['ID'], df_LN['ID'])
+    aL_Output = zip(df_LN['ID']+".TW", df_LN['Name'] + "("+ df_LN['ID']+")")
+
+    L_InputNam = dict(aL_InputNam)
+    L_InputNum = dict(aL_InputNum)
+    L_Output = dict(aL_Output)
+
+    ##上櫃資料
+
+    url = 'https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&se=EW&t=D&_=1659636941450'
+    res = requests.get(url)
+    data = res.json()
+    data_all = data['aaData']
+    df_all = []
+    for i in range (len(data_all)):
+        get0=[]
+        for j in range(0,2):
+            get0.append(data_all[i][j])
+        df_all.append(get0)
+
+        result = []
+    for i in range(len(df_all)):
+        result0=[]
+        for j in range(0,2):
+            result0.append(df_all[i][j].replace(" ",""))
+        result.append(result0)
+
+    df_all = result
+    df_ON= pd.DataFrame(df_all, columns=["ID", "Name"] )
+    df_ON['ID'] = df_ON['ID'].astype(str)
+    aO_InputNam = zip(df_ON['Name'],df_ON['ID'])
+    aO_InputNum = zip(df_ON['ID'], df_ON['ID'])
+    aO_Output = zip(df_ON['ID']+".TWO", df_ON['Name'] + "("+df_ON['ID']+")")
+
+    O_InputNam = dict(aO_InputNam)
+    O_InputNum = dict(aO_InputNum)
+    O_Output = dict(aO_Output)
+
+    #merge
+    ################
+    Input = {**L_InputNam, **L_InputNum, **O_InputNam, **O_InputNum}
+
+    Output = {**L_Output, **O_Output}
+    return Output
+
+# multi-thread
+
+result = []
+end_date = datetime.date.today()
+start_date = end_date - datetime.timedelta(days=100)
+lock = threading.Lock()
+divide = 3
+def download_data(var, Count):
+    try:
+        # 建立一個股票物件
+        stock = yf1.Ticker(var) # xxxx.TW
+        # 獲取即時股價和成交量資料
+        stock_Realtime = stock.history(period="1d")
+        # 給需要計算數值變數
+        # 當下價格
+        Price_RT = float(stock_Realtime['Close'][0])
+        result.append(var)
+        print(var, " : ", Price_RT)
+    except (ValueError, KeyError, IndexError, TypeError) as e:
+        # 如果讀取失敗，輸出錯誤訊息
+        print("讀取資料失敗: ", e)
+        return
+
+    # with lock:
+    #     df_data = yf1.download(var, start=start_date, end=end_date)
+
+    if Count % divide == 0:
+        with lock:
+            df_data = yf1.download(var, start=start_date, end=end_date)
+    elif Count % divide == 1:
+        with lock:
+            df_data = yf2.download(var, start=start_date, end=end_date)
+    elif Count % divide == 2:
+        with lock:
+            df_data = yf3.download(var, start=start_date, end=end_date)
+    # elif Count % divide == 3:
+    #     with lock:
+    #         df_data = yf4.download(var, start=start_date, end=end_date)
+    # elif Count % divide == 4:
+    #     with lock:
+    #         df_data = yf5.download(var, start=start_date, end=end_date)
+
+    print("Count = ", Count, var,":",float(df_data["Close"].tail(1)))
+
+def main():
+    start_time = time.time()
+
+
+    Count = 0
+    # 建立多個執行緒
+    threads = []
+    A = renew_data()
+    StockNumList = list(A.keys())
+    # StockNameList = list(A.values())
+    for StockIndex in range( 0, int( len( StockNumList ) / 5 ) ):
+        TargetStockNo = StockNumList[StockIndex]
+        # 跳過ETF跟權證
+        if len(TargetStockNo.split('.')[0]) != 4 :
+            continue
+        else:
+            Count += 1
+
+        t = threading.Thread(target=download_data, args=(TargetStockNo,Count))
+        threads.append(t)
+        t.start()
+
+        if Count % divide == 0:
+        # if Count % 5 == 0:
+
+            # 等待所有執行緒完成
+            for t in threads:
+                t.join()
+
+    # 等待所有執行緒完成
+    for t in threads:
+        t.join()
+
+    print(result)
+    print("count = ", Count)
+
+
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print(f"程式執行時間為 {elapsed_time:.2f} 秒")
+ 
+main()
