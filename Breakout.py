@@ -1,16 +1,8 @@
-import os
-import requests
 import pandas as pd
 import numpy as np
-import pickle
 import yfinance as yf 
-import matplotlib.pyplot as plt
-import math
-import re
-import requests
 import datetime as dt
 from datetime import datetime
-import twstock
 import time
 import json
 
@@ -74,12 +66,35 @@ class cParam():
         self.TargetStockNumList = []
         self.TargetStockNameList = []
 
+    def AddStockToTarget(self, index):
+        # 把完整list的股票逐一塞到target內
+        self.TargetStockNumList.append( self.StockNumList[index] )
+        self.TargetStockNameList.append( self.StockNameList[index] )
+        self.TargetNum += 1
+        if len(self.TargetStockNumList) < self.GetStockAmount and index != (int( len( self.StockNumList ) ) - 1):
+            return True
+        else:
+            return False
+
 class cOutputData():
     def __init__(self):
         self.Found = []
         self.Fail_yf = []
         self.BreakoutList = []
         self.FirstBreakoutList = []
+    def GetResult(self, AllParam : cParam):
+        end_time = time.time()
+
+        ResultStr = "輸出結果 : "
+        ResultStrList = []
+        ResultStrList.append(f"Breakout = {self.BreakoutList}")
+        ResultStrList.append(f"FirstBreakout = {self.FirstBreakoutList}")
+        ResultStrList.append(f"Fail_yf = {self.Fail_yf}")
+        ResultStrList.append(f"CountBreak = {AllParam.CountBreak}")
+        ResultStrList.append(f"Time = {(end_time - AllParam.start_time):.2f}秒, yf Time = {AllParam.AccTime_yf:.2f}秒")
+        for str in ResultStrList:
+            ResultStr = f"{ResultStr}\n{str}"
+        return ResultStr
 
 # 根據價量算出需要用的指標
 def CalcIndicator( df: pd.DataFrame ):
@@ -160,45 +175,34 @@ def Breakout():
     AllParam = cParam()
     OutputData = cOutputData()
 
-
     # 搜尋特定股票，因yfinance回傳格式，至少要兩隻
     # AllParam.StockNumList = AllParam.StockNameList = ['6485.TWO', "3105.TWO"]
 
-
     # 搜尋所有股票
     for AllListIndex in range( 0, int( len( AllParam.StockNumList ) ) ):
-        # 把完整list的股票逐一塞到target內
-        AllParam.TargetStockNumList.append( AllParam.StockNumList[AllListIndex] )
-        AllParam.TargetStockNameList.append( AllParam.StockNameList[AllListIndex] )
-        AllParam.TargetNum += 1
-
-        # 把TargetList塞到想要的數量或是整個list跑完了，才繼續做後面的計算
-        if len(AllParam.TargetStockNumList) < AllParam.GetStockAmount and AllListIndex != (int( len( AllParam.StockNumList ) ) - 1):
+        # 1. 把股票放進Target
+        # 若還沒塞完跳過下面計算重新塞
+        if AllParam.AddStockToTarget(AllListIndex):
             continue
+        # 若已達到想要的數量，開始下載資料
         else:
             pass
 
-        # 2.撈歷史資料
-        # 一次撈一批歷史資料
+        # 2. 一次撈一批歷史資料
         AllParam.StartTime_yf = time.time()
         df_data = yf.download(AllParam.TargetStockNumList, start=AllParam.start_date, end=AllParam.end_date)
         AllParam.AccTime_yf = time.time() - AllParam.StartTime_yf + AllParam.AccTime_yf
-        # 各自跑迴圈計算
+
+        # 3. 各自跑迴圈計算
         for StockIndex in range( 0, len(AllParam.TargetStockNumList) ) :
             CalcOneStock(df_data, AllParam, OutputData, StockIndex)
 
+        # 清空Target
         AllParam.resetTargetList()
 
-        # 每掃600隻印一次出來
-        if AllListIndex % 600 == 599:
-            print('Breakout = ', OutputData.BreakoutList)
-            print('FirstBreakoutList = ', OutputData.FirstBreakoutList)
+        # # 每掃600隻印一次出來
+        # if AllListIndex % 600 == 599:
+        #     print('Breakout = ', OutputData.BreakoutList)
+        #     print('FirstBreakoutList = ', OutputData.FirstBreakoutList)
 
-    print('Breakout = ', OutputData.BreakoutList)
-    print('FirstBreakout = ', OutputData.FirstBreakoutList)
-    print("Fail_yf = ", OutputData.Fail_yf)
-    print("CountBreak = ", AllParam.CountBreak)
-    end_time = time.time()
-    print(f"程式執行時間為 {(end_time - AllParam.start_time):.2f} 秒", f"yf執行時間為 {AllParam.AccTime_yf:.2f} 秒")
-
-Breakout()
+    return OutputData.GetResult(AllParam)
