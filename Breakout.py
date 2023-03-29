@@ -14,159 +14,84 @@ import twstock
 import time
 import json
 
-# todo : mutli-thread
-def renew_data():
-    # filepath = "./Output.pkl"
-    # while os.path.isfile(filepath):
-    #     os.remove(r"./Input.pkl")
-    #     os.remove(r"./r_Input.pkl")
-    #     os.remove(r"./Output.pkl")
-    #     os.remove(r"./r_Output.pkl")
-    
-    #上市資料
-    EFurl = 'https://www.twse.com.tw/fund/TWT38U?response=json&date=&_=1644690000895'
-    res = requests.get(EFurl)
-    data = res.json()
-    data_all = data['data']
+def LoadStockList():
+    with open("data.json", "r") as f:
+        StockList_Dict = json.load(f)
+    return list(StockList_Dict.keys()), list(StockList_Dict.values())
 
-    df_all = []
-    for i in range (len(data_all)):
-        get0=[]
-        for j in range(1,3):
-            get0.append(data_all[i][j])
-        df_all.append(get0)
+# 根據價量算出需要用的指標
+def CalcIndicator( df: pd.DataFrame, StockIndex ):
+    # 計算均值 or 最大值
+    df[ 'MA_5' ] = df['Close'].rolling(5).mean()
+    df[ 'MA_20' ] = df['Close'].rolling(20).mean()
+    df[ 'Vol_5ma'] = df['Volume'].rolling(5).mean()
+    df['max_Price'] = df['High'].rolling(window=40).max()
+    # 計算收盤價的20天標準差
+    df["Close_std"] = df["Close"].rolling(window=20).std()
+    # 布林帶寬
+    df["BW"] = df["Close_std"] * 4.2 / df['MA_20']
+    df['max_BWIn20'] = df['BW'].rolling(window=20).max()
 
-        result = []
-    for i in range(len(df_all)):
-        result0=[]
-        for j in range(0,2):
-            result0.append(df_all[i][j].replace(" ",""))
-        result.append(result0)
+# 判斷是否為突破
+def CalcCondition( df : pd.DataFrame, StockIndex, TargetStockNameList : list ):
 
-    df_all = result
-    df_LN= pd.DataFrame(df_all, columns=["ID", "Name"] )
-    df_LN['ID'] = df_LN['ID'].astype(str)
-    aL_InputNam = zip(df_LN['Name'], df_LN['ID']+".TW")
-    aL_InputNum = zip(df_LN['ID'], df_LN['ID']+".TW")
-    aL_Output = zip(df_LN['ID']+".TW", df_LN['Name'] + "("+ df_LN['ID']+")")
+    # 取出當天資料
+    # 當下價格
+    Price_RT = float(df.iloc[-1]['Close'])
+    # 當下成交量
+    Volume_RT = float(df.iloc[-1]['Volume']) # 單位為股
 
-    L_InputNam = dict(aL_InputNam)
-    L_InputNum = dict(aL_InputNum)
-    L_Output = dict(aL_Output)
+    # 給需要計算數值變數
+    # 5日均量
+    Volume_5MA = float(df.iloc[-2]['Vol_5ma'])
+    # 近日最高價格
+    Price_High = float(df.iloc[-2]['max_Price'])
+    # 5日均價
+    Price_5MA = float(df.iloc[-2]['MA_5'])
+    # 20日均價
+    Price_20MA = float(df.iloc[-2]['MA_20'])
+    # 前10天布林帶寬最大值
+    BW_MaxIn20 = float(df.iloc[-2]['max_BWIn20'])
 
-    ##上櫃資料
+    # 條件1 : 成交量出量
+    Cond1 = Volume_RT > Volume_5MA * RefVolume
+    # 條件2 : 40日以來最高價
+    Cond2 = Price_RT >= Price_High
+    # 條件3 : 五日線/二十日線 < 1.02 -> 確保均線靠近
+    Cond3 = Price_5MA / Price_20MA < 1.02
+    # 條件4 : 二十日的布林帶寬最大值小於0.09
+    Cond4 = BW_MaxIn20 < 0.09
 
-    url = 'https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&se=EW&t=D&_=1659636941450'
-    res = requests.get(url)
-    data = res.json()
-    data_all = data['aaData']
-    df_all = []
-    for i in range (len(data_all)):
-        get0=[]
-        for j in range(0,2):
-            get0.append(data_all[i][j])
-        df_all.append(get0)
+    global CountBreak
+    if Cond1 and Cond2:
+        BreakoutList.append(TargetStockNameList[StockIndex])
+        CountBreak += 1
+        if Cond3 and Cond4:
+            FirstBreakoutList.append(TargetStockNameList[StockIndex])
+    # print( "FailCondition = ", bin( Cond1 | Cond2 << 1 | Cond3 << 2 | Cond4 << 3 ) )
 
-        result = []
-    for i in range(len(df_all)):
-        result0=[]
-        for j in range(0,2):
-            result0.append(df_all[i][j].replace(" ",""))
-        result.append(result0)
+# 計算單一隻股票是否突破
+def CalcOneStock( df_AllData : pd.DataFrame, TargetStockNumList : list, TargetStockNameList : list, StockIndex ):
+    # 把當前要搜尋的股票放到df
+    df = pd.DataFrame()
+    df['Open'] = df_AllData['Open'][TargetStockNumList[StockIndex]]
+    df['High'] = df_AllData['High'][TargetStockNumList[StockIndex]]
+    df['Low'] = df_AllData['Low'][TargetStockNumList[StockIndex]]
+    df['Close'] = df_AllData['Close'][TargetStockNumList[StockIndex]]
+    df['Volume'] = df_AllData['Volume'][TargetStockNumList[StockIndex]]
 
-    df_all = result
-    df_ON= pd.DataFrame(df_all, columns=["ID", "Name"] )
-    df_ON['ID'] = df_ON['ID'].astype(str)
-    aO_InputNam = zip(df_ON['Name'],df_ON['ID']+".TWO")
-    aO_InputNum = zip(df_ON['ID'], df_ON['ID']+".TWO")
-    aO_Output = zip(df_ON['ID']+".TWO", df_ON['Name'] + "("+df_ON['ID']+")")
+    # 檢查每個元素是否為NaN，代表下載資料失敗
+    is_nan = df.isna()
+    # 檢查所有元素是否都是NaN
+    all_nan = is_nan.all().all()
+    if all_nan:
+        Fail_yf.append(TargetStockNameList[StockIndex])
+        return
+    else:
+        Found.append(TargetStockNameList[StockIndex])
 
-    O_InputNam = dict(aO_InputNam)
-    O_InputNum = dict(aO_InputNum)
-    O_Output = dict(aO_Output)
-
-    #merge
-    ################
-    Input = {**L_InputNam, **L_InputNum, **O_InputNam, **O_InputNum}
-    a_file = open('Input.pkl', "wb")
-    pickle.dump(Input, a_file)
-    a_file.close()
-
-    Output = {**L_Output, **O_Output}
-
-    a_file = open('Output.pkl', "wb")
-    pickle.dump(Output, a_file)
-    a_file.close()
-    #################
-    #################
-     #上市資料
-    EFurl = 'https://www.twse.com.tw/fund/TWT38U?response=json&date=&_=1644690000895'
-    res = requests.get(EFurl)
-    data = res.json()
-    data_all = data['data']
-
-    df_all = []
-    for i in range (len(data_all)):
-        get0=[]
-        for j in range(1,3):
-            get0.append(data_all[i][j])
-        df_all.append(get0)
-
-        result = []
-    for i in range(len(df_all)):
-        result0=[]
-        for j in range(0,2):
-            result0.append(df_all[i][j].replace(" ",""))
-        result.append(result0)
-
-    df_all = result
-    df_LN= pd.DataFrame(df_all, columns=["ID", "Name"] )
-    df_LN['ID'] = df_LN['ID'].astype(str)
-    aL_InputNam = zip(df_LN['Name'], df_LN['ID'])
-    aL_InputNum = zip(df_LN['ID'], df_LN['ID'])
-    aL_Output = zip(df_LN['ID']+".TW", df_LN['Name'] + "("+ df_LN['ID']+")")
-
-    L_InputNam = dict(aL_InputNam)
-    L_InputNum = dict(aL_InputNum)
-    L_Output = dict(aL_Output)
-
-    ##上櫃資料
-
-    url = 'https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&se=EW&t=D&_=1659636941450'
-    res = requests.get(url)
-    data = res.json()
-    data_all = data['aaData']
-    df_all = []
-    for i in range (len(data_all)):
-        get0=[]
-        for j in range(0,2):
-            get0.append(data_all[i][j])
-        df_all.append(get0)
-
-        result = []
-    for i in range(len(df_all)):
-        result0=[]
-        for j in range(0,2):
-            result0.append(df_all[i][j].replace(" ",""))
-        result.append(result0)
-
-    df_all = result
-    df_ON= pd.DataFrame(df_all, columns=["ID", "Name"] )
-    df_ON['ID'] = df_ON['ID'].astype(str)
-    aO_InputNam = zip(df_ON['Name'],df_ON['ID'])
-    aO_InputNum = zip(df_ON['ID'], df_ON['ID'])
-    aO_Output = zip(df_ON['ID']+".TWO", df_ON['Name'] + "("+df_ON['ID']+")")
-
-    O_InputNam = dict(aO_InputNam)
-    O_InputNum = dict(aO_InputNum)
-    O_Output = dict(aO_Output)
-
-    #merge
-    ################
-    Input = {**L_InputNam, **L_InputNum, **O_InputNam, **O_InputNum}
-
-    Output = {**L_Output, **O_Output}
-    return Output
+    CalcIndicator(df, StockIndex)
+    CalcCondition(df, StockIndex, TargetStockNameList)
 
 def getVolumnRef():
     now = datetime.now()
@@ -196,176 +121,67 @@ def getVolumnRef():
         RefVolume = 2
     return RefVolume
 
-GetStockAmount = 10
+GetStockAmount = 100
 Found = []
 Fail_yf = []
-Fail_Realtime = []
 BreakoutList = []
 FirstBreakoutList = []
-Price_RT = [0] * GetStockAmount
-Volume_RT = [0] * GetStockAmount
-dfs = [pd.DataFrame() for _ in range(GetStockAmount)]
-ErrorIndex = [0] * GetStockAmount # 若整批讀取的過程有錯誤，on起來標注那個錯誤
+CountBreak = 0
+RefVolume = getVolumnRef()
 
 def Breakout():
+    # 記錄執行時間
     start_time = time.time()
-    CountAll = 0
-    CountBreak = 0
-    CountNotBreak = 0
-    CountNoVol = 0
-    CountStock = 0
-    # A = renew_data()
-    with open("data.json", "r") as f:
-        A = json.load(f)
-    StockNumList = list(A.keys())
-    StockNameList = list(A.values())
-    RefVolume = getVolumnRef()
+    # 讀取股票清單
+    StockNumList, StockNameList = LoadStockList()
     # 設定時間
-    end_date = dt.date.today()
+    end_date = dt.date.today() + dt.timedelta(days=1) # 因為yfinance只會抓end date的前一天，所以+1才變當天
     start_date = end_date - dt.timedelta(days=100)
-    yftimeAll = 0
-    yftimestart = 0
-    yfrealtimeAll = 0
-    yfrealtimestart = 0
-    # 搜尋特定股票
-    # StockNumList = ['1907.TW']
+    AccTime_yf = 0
+    StartTime_yf = 0
+    # 搜尋特定股票，因yfinance回傳格式，至少要兩隻
+    # StockNumList = StockNameList = ['6485.TWO', "3105.TWO"]
 
+    TargetNum = 0
+    TargetStockNumList = []
+    TargetStockNameList = []
     # 搜尋所有股票
-    for StockGroupIndex in range( 0, int( len( StockNumList ) / GetStockAmount ) ):
-        ErrorIndex = [0] * GetStockAmount
+    for AllListIndex in range( 0, int( len( StockNumList ) ) ):
+        # 把完整list的股票逐一塞到target內
+        TargetStockNumList.append( StockNumList[AllListIndex] )
+        TargetStockNameList.append( StockNameList[AllListIndex] )
+        TargetNum += 1
 
-        # 跳過權證跟etf
-        TargetStockNo = StockNumList[StockGroupIndex * GetStockAmount + StockIndex]
-        TargetStockName = StockNameList[StockGroupIndex * GetStockAmount + StockIndex]
-        # 處理當天資料
-        for StockIndex in range( 0, GetStockAmount ):
-            TargetStockNo = StockNumList[StockGroupIndex * GetStockAmount + StockIndex]
-            TargetStockName = StockNameList[StockGroupIndex * GetStockAmount + StockIndex]
-            CountAll += 1
-            # 跳過ETF跟權證
-            if len(TargetStockNo.split('.')[0]) != 4 :
-                ErrorIndex[StockIndex] = 1
-                continue
-            else:
-                CountStock += 1
-
-            # 1.撈即時資料
-            try:
-                yfrealtimestart = time.time()
-                # 建立一個股票物件
-                stock = yf.Ticker(TargetStockNo) # xxxx.TW
-
-                # 獲取即時股價和成交量資料
-                stock_Realtime = stock.history(period="1d")
-                yfrealtimeAll = time.time() - yfrealtimestart + yfrealtimeAll
-
-                # 給需要計算數值變數
-                # 當下價格
-                Price_RT[StockIndex] = float(stock_Realtime['Close'][0])
-                # 當下成交量
-                Volume_RT[StockIndex] = float(stock_Realtime['Volume'][0]) # 單位為股
-
-            except (ValueError, KeyError, IndexError, TypeError) as e:
-                # 如果讀取失敗，輸出錯誤訊息
-                print("讀取資料失敗: ", e)
-                Fail_Realtime.append(TargetStockName)
-                ErrorIndex[StockIndex] = 1
-                continue
-
-        # # 初步篩選：篩選最低成交量，10點前 < 140張，收盤前 < 400張，直接跳過
-        # if CountAll % 100 == 1:
-        #     RefVolume = getVolumnRef()
-        # if Volume_RT < RefVolume * 200 * 1000:
-        #     CountNoVol += 1
-        #     continue
+        # 把TargetList塞到想要的數量或是整個list跑完了，才繼續做後面的計算
+        if len(TargetStockNumList) < GetStockAmount and AllListIndex != (int( len( StockNumList ) ) - 1):
+            continue
+        else:
+            pass
 
         # 2.撈歷史資料
         # 一次撈一批歷史資料
-        TargetStockNoGroup = StockNumList[ StockGroupIndex * GetStockAmount : ( StockGroupIndex + 1 ) * GetStockAmount ]
-        yftimestart = time.time()
-        df_data = yf.download(TargetStockNoGroup, start=start_date, end=end_date)
-        yftimeAll = time.time() - yftimestart + yftimeAll
-        # 各自跑回圈計算
-        for StockIndex in range( 0, GetStockAmount ) :
-            # 若real time就判斷失敗，跳過
-            if ErrorIndex[StockIndex] == 1: 
-                continue
-            TargetStockNo = StockNumList[StockGroupIndex * GetStockAmount + StockIndex]
-            TargetStockName = StockNameList[StockGroupIndex * GetStockAmount + StockIndex]
-            # 把當前要搜尋的股票放到df
-            df = pd.DataFrame()
-            df['Open'] = df_data['Open'][StockNumList[StockGroupIndex * GetStockAmount + StockIndex]]
-            df['High'] = df_data['High'][StockNumList[StockGroupIndex * GetStockAmount + StockIndex]]
-            df['Low'] = df_data['Low'][StockNumList[StockGroupIndex * GetStockAmount + StockIndex]]
-            df['Close'] = df_data['Close'][StockNumList[StockGroupIndex * GetStockAmount + StockIndex]]
-            df['Volume'] = df_data['Volume'][StockNumList[StockGroupIndex * GetStockAmount + StockIndex]]
+        StartTime_yf = time.time()
+        df_data = yf.download(TargetStockNumList, start=start_date, end=end_date)
+        AccTime_yf = time.time() - StartTime_yf + AccTime_yf
+        # 各自跑迴圈計算
+        for StockIndex in range( 0, len(TargetStockNumList) ) :
+            CalcOneStock(df_data, TargetStockNumList, TargetStockNameList, StockIndex)
 
-            # print(TargetStockNo)
+        # reset Target list相關參數
+        TargetNum = 0
+        TargetStockNumList = []
+        TargetStockNameList = []
 
-            # 檢查每個元素是否為NaN
-            is_nan = df.isna()
-            # 檢查所有元素是否都是NaN
-            all_nan = is_nan.all().all()
-            if all_nan:
-                Fail_yf.append(TargetStockName)
-                continue
-            else:
-                Found.append(TargetStockName)
-
-            # 計算均值 or 最大值
-            df[ 'MA_5' ] = df['Close'].rolling(5).mean()
-            df[ 'MA_20' ] = df['Close'].rolling(20).mean()
-            df[ 'Vol_5ma'] = df['Volume'].rolling(5).mean()
-            df['max_Price'] = df['High'].rolling(window=40).max()
-            # 計算收盤價的20天標準差
-            df["Close_std"] = df["Close"].rolling(window=20).std()
-            # 布林帶寬
-            df["BW"] = df["Close_std"] * 4.2 / df['MA_20']
-            df['max_BWIn20'] = df['BW'].rolling(window=20).max()
-
-            # 給需要計算數值變數
-            # 5日均量
-            Volume_5MA = float(df['Vol_5ma'].tail(1))
-            # 近日最高價格
-            Price_High = float(df['max_Price'].tail(1))
-            # 5日均價
-            Price_5MA = float(df['MA_5'].tail(1))
-            # 20日均價
-            Price_20MA = float(df['MA_20'].tail(1))
-            # 前10天布林帶寬最大值
-            BW_MaxIn20 = float(df['max_BWIn20'].tail(1))
-
-
-            # 條件1 : 成交量出量
-            Cond1 = Volume_RT[StockIndex] > Volume_5MA * RefVolume
-            # 條件2 : 40日以來最高價
-            Cond2 = Price_RT[StockIndex] >= Price_High
-            # 條件3 : 五日線/二十日線 < 1.02 -> 確保均線靠近
-            Cond3 = Price_5MA / Price_20MA < 1.02
-            # 條件4 : 二十日的布林帶寬最大值小於0.09
-            Cond4 = BW_MaxIn20 < 0.09
-
-            if Cond1 and Cond2:
-                BreakoutList.append(TargetStockName)
-                CountBreak += 1
-                if Cond3 and Cond4:
-                    FirstBreakoutList.append(TargetStockName)
-            else:
-                CountNotBreak += 1
-            # print( "FailCondition = ", bin( Cond1 | Cond2 << 1 | Cond3 << 2 | Cond4 << 3 ) )
-
-        # 每掃400隻印一次出來
-        if CountAll % 400 == 0:
+        # 每掃600隻印一次出來
+        if AllListIndex % 600 == 599:
             print('Breakout = ', BreakoutList)
             print('FirstBreakoutList = ', FirstBreakoutList)
 
     print('Breakout = ', BreakoutList)
-    print('FirstBreakoutList = ', FirstBreakoutList)
+    print('FirstBreakout = ', FirstBreakoutList)
     print("Fail_yf = ", Fail_yf)
-    print("Fail_Realtime = ", Fail_Realtime)
-    print("CountBreak = ", CountBreak, ", CountNotBreak = ", CountNotBreak, "CountStock = ", CountStock , "CountNoVol = ", CountNoVol, "CountAll = ", CountAll)
+    print("CountBreak = ", CountBreak)
     end_time = time.time()
-    elapsed_time = end_time - start_time
-    print(f"程式執行時間為 {elapsed_time:.2f} 秒", f"yf執行時間為 {yftimeAll:.2f} 秒", f"realtime執行時間為 {yfrealtimeAll:.2f} 秒")
+    print(f"程式執行時間為 {(end_time - start_time):.2f} 秒", f"yf執行時間為 {AccTime_yf:.2f} 秒")
 
 Breakout()
