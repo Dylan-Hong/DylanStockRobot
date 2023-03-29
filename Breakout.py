@@ -201,4 +201,4 @@ def Breakout():
     end_time = time.time()
     print(f"程式執行時間為 {(end_time - AllParam.start_time):.2f} 秒", f"yf執行時間為 {AllParam.AccTime_yf:.2f} 秒")
 
-Breakout()
+#Breakout()
