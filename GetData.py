@@ -172,6 +172,3 @@ def GenListJson():
         data = json.load(f)
 
     print(data)
-
-
-GenListJson()
