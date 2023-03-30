@@ -80,15 +80,20 @@ class cOutputData():
     def __init__(self):
         self.Found = []
         self.Fail_yf = []
-        self.BreakoutList = []
-        self.FirstBreakoutList = []
+        self.KeepBreakoutList = []
+        self.VCPBreakoutList = []
+        self.RiseBreakoutList = []
     def GetResult(self, AllParam : cParam):
         end_time = time.time()
 
         ResultStr = "輸出結果 : "
         ResultStrList = []
-        ResultStrList.append(f"Breakout = {self.BreakoutList}")
-        ResultStrList.append(f"FirstBreakout = {self.FirstBreakoutList}")
+        ResultStrList.append(f"● 持續帶量創高 : \n{self.KeepBreakoutList}")
+        ResultStrList.append(f"——————————")
+        ResultStrList.append(f"● 壓縮後帶量突破 : \n{self.VCPBreakoutList}")
+        ResultStrList.append(f"——————————")
+        ResultStrList.append(f"● 上漲後突破 : \n{self.RiseBreakoutList}")
+        ResultStrList.append(f"——————————")
         ResultStrList.append(f"Fail_yf = {self.Fail_yf}")
         ResultStrList.append(f"CountBreak = {AllParam.CountBreak}")
         ResultStrList.append(f"Time = {(end_time - AllParam.start_time):.2f}秒, yf Time = {AllParam.AccTime_yf:.2f}秒")
@@ -102,6 +107,7 @@ def CalcIndicator( df: pd.DataFrame ):
     df[ 'MA_5' ] = df['Close'].rolling(5).mean()
     df[ 'MA_20' ] = df['Close'].rolling(20).mean()
     df[ 'Vol_5ma'] = df['Volume'].rolling(5).mean()
+    # 前40日最高價
     df['max_Price'] = df['High'].rolling(window=40).max()
     # 計算收盤價的20天標準差
     df["Close_std"] = df["Close"].rolling(window=20).std()
@@ -111,7 +117,7 @@ def CalcIndicator( df: pd.DataFrame ):
 
 # 判斷是否為突破
 def CalcCondition( df : pd.DataFrame, StockIndex, AllParam : cParam, OutputData : cOutputData ):
-
+    TargetName = AllParam.TargetStockNameList[StockIndex]
     # 取出當天資料
     # 當下價格
     Price_RT = float(df.iloc[-1]['Close'])
@@ -119,32 +125,45 @@ def CalcCondition( df : pd.DataFrame, StockIndex, AllParam : cParam, OutputData 
     Volume_RT = float(df.iloc[-1]['Volume']) # 單位為股
 
     # 給需要計算數值變數
-    # 5日均量
+    # 前一天的5日均量
     Volume_5MA = float(df.iloc[-2]['Vol_5ma'])
-    # 近日最高價格
-    Price_High = float(df.iloc[-2]['max_Price'])
-    # 5日均價
+    # 前一天的40日最高價格
+    Price_RecentHigh = float(df.iloc[-2]['max_Price'])
+    # 前一天的5日均價
     Price_5MA = float(df.iloc[-2]['MA_5'])
-    # 20日均價
+    # 前一天的20日均價
     Price_20MA = float(df.iloc[-2]['MA_20'])
     # 前10天布林帶寬最大值
     BW_MaxIn20 = float(df.iloc[-2]['max_BWIn20'])
+    # 前一天的最高
+    Price_LastHigh = float(df.iloc[-2]['High'])
+
 
     # 條件1 : 成交量出量
     Cond1 = Volume_RT > Volume_5MA * AllParam.RefVolume
     # 條件2 : 40日以來最高價
-    Cond2 = Price_RT >= Price_High
+    Cond2 = Price_RT >= Price_RecentHigh
     # 條件3 : 五日線/二十日線 < 1.02 -> 確保均線靠近
     Cond3 = Price_5MA / Price_20MA < 1.02
     # 條件4 : 二十日的布林帶寬最大值小於0.09
     Cond4 = BW_MaxIn20 < 0.09
+    # 條件5 : 前一天有沒有創高
+    Cond5 = not (Price_LastHigh == Price_RecentHigh)
 
     global CountBreak
     if Cond1 and Cond2:
-        OutputData.BreakoutList.append(AllParam.TargetStockNameList[StockIndex])
         AllParam.CountBreak += 1
+        # 壓縮後出量突破
         if Cond3 and Cond4:
-            OutputData.FirstBreakoutList.append(AllParam.TargetStockNameList[StockIndex])
+            OutputData.VCPBreakoutList.append(TargetName)
+        # 上漲後出量突破
+        elif Cond5:
+            OutputData.RiseBreakoutList.append(TargetName)
+        # 持續出量創高
+        else:
+            OutputData.KeepBreakoutList.append(TargetName)
+
+
     # print( "FailCondition = ", bin( Cond1 | Cond2 << 1 | Cond3 << 2 | Cond4 << 3 ) )
 
 # 計算單一隻股票是否突破
@@ -176,7 +195,7 @@ def Breakout():
     OutputData = cOutputData()
 
     # 搜尋特定股票，因yfinance回傳格式，至少要兩隻
-    # AllParam.StockNumList = AllParam.StockNameList = ['6485.TWO', "3105.TWO"]
+    # AllParam.StockNumList = AllParam.StockNameList = ['3023.TW', "3105.TWO"]
 
     # 搜尋所有股票
     for AllListIndex in range( 0, int( len( AllParam.StockNumList ) ) ):
