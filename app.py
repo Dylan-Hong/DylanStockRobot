@@ -52,4 +52,7 @@ def handle_message(event):
         message = TextSendMessage(text="測試")
         line_bot_api.reply_message(event.reply_token, message)#
 
+    if 'G' in msg[0]:
+        message = TextSendMessage(Breakout())
+        line_bot_api.reply_message(event.reply_token, message)#
 
