@@ -26,7 +26,6 @@ import json
 TargetStockNoGroup = '3105.TWO'
 end_date = dt.date.today() + dt.timedelta(days=1)
 start_date = end_date - dt.timedelta(days=10)
-print(end_date)
 df_data = yf.download(TargetStockNoGroup, start=start_date, end=end_date)
 print(df_data)
 # if df_data.iloc[-1]['Close'] > df_data.iloc[-2]['Close'] : 

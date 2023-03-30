@@ -56,3 +56,7 @@ def handle_message(event):
         message = TextSendMessage(Breakout())
         line_bot_api.reply_message(event.reply_token, message)#
 
+    if '早安' in msg[0]:
+        message = TextSendMessage(text="早安")
+        line_bot_api.reply_message(event.reply_token, message)#
+
