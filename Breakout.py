@@ -8,10 +8,11 @@ import json
 
 
 class cParam():
-    def __init__(self):
+    def __init__(self, SearchAllStock):
         # 需要設定的參數
         self.GetStockAmount = 100
         self.RefVolume = self.getVolumnRef()
+        self.SearchAllStock = SearchAllStock
         # 計算用的變數
         self.CountBreak = 0
         self.TargetNum = 0
@@ -85,8 +86,10 @@ class cOutputData():
         self.RiseBreakoutList = []
     def GetResult(self, AllParam : cParam):
         end_time = time.time()
+        now = dt.datetime.now()
+        current_time = now.strftime("%Y-%m-%d %H:%M:%S").split(".")[0]  # 取得秒之前的部分，去除秒的小數部分
 
-        ResultStr = "輸出結果 : "
+        ResultStr = f"{current_time} 分析結果 : "
         ResultStrList = []
         ResultStrList.append(f"● 持續帶量創高 : \n{self.KeepBreakoutList}")
         ResultStrList.append(f"——————————")
@@ -118,6 +121,9 @@ def CalcIndicator( df: pd.DataFrame ):
 # 判斷是否為突破
 def CalcCondition( df : pd.DataFrame, StockIndex, AllParam : cParam, OutputData : cOutputData ):
     TargetName = AllParam.TargetStockNameList[StockIndex]
+    # 若搜尋特定股票，因為沒給名稱所以代號當名字
+    if AllParam.SearchAllStock == 0:
+        TargetName = AllParam.TargetStockNumList[StockIndex]
     # 取出當天資料
     # 當下價格
     Price_RT = float(df.iloc[-1]['Close'])
@@ -138,33 +144,53 @@ def CalcCondition( df : pd.DataFrame, StockIndex, AllParam : cParam, OutputData 
     # 前一天的最高
     Price_LastHigh = float(df.iloc[-2]['High'])
 
-
-    # 條件1 : 成交量出量
-    Cond1 = Volume_RT > Volume_5MA * AllParam.RefVolume
-    # 條件2 : 40日以來最高價
-    Cond2 = Price_RT >= Price_RecentHigh
-    # 條件3 : 五日線/二十日線 < 1.02 -> 確保均線靠近
-    Cond3 = Price_5MA / Price_20MA < 1.02
-    # 條件4 : 二十日的布林帶寬最大值小於0.09
-    Cond4 = BW_MaxIn20 < 0.09
-    # 條件5 : 前一天有沒有創高
-    Cond5 = not (Price_LastHigh == Price_RecentHigh)
+    Cond = [0] * 7
+    Index = 0
+    # 條件0 : 成交量出量
+    Cond[Index] = Volume_RT > Volume_5MA * AllParam.RefVolume
+    Index += 1
+    # 條件1 : 40日以來最高價
+    Cond[Index] = Price_RT > Price_RecentHigh
+    Index += 1
+    # 條件2 : 五日線/二十日線 < 1.02 -> 確保均線靠近
+    Cond[Index] = Price_5MA / Price_20MA < 1.02
+    Index += 1
+    # 條件3 : 二十日的布林帶寬最大值小於0.09
+    Cond[Index] = BW_MaxIn20 < 0.09
+    Index += 1
+    # 條件4 : 前一天有沒有創高
+    Cond[Index] = not (Price_LastHigh == Price_RecentHigh)
+    Index += 1
+    # 條件5 : 五日均量超過300張
+    Cond[Index] = Volume_5MA > 300000
+    Index += 1
+    # 條件6 : 當天均量超過500張
+    Cond[Index] = Volume_RT > (500000 * AllParam.RefVolume)
+    Index += 1
 
     global CountBreak
-    if Cond1 and Cond2:
+    if Cond[0] and Cond[1]:
         AllParam.CountBreak += 1
         # 壓縮後出量突破
-        if Cond3 and Cond4:
+        if Cond[2] and Cond[3] and Cond[6]:
             OutputData.VCPBreakoutList.append(TargetName)
         # 上漲後出量突破
-        elif Cond5:
+        elif Cond[4] and Cond[5]:
             OutputData.RiseBreakoutList.append(TargetName)
         # 持續出量創高
-        else:
+        elif Cond[5]:
+        # else:
             OutputData.KeepBreakoutList.append(TargetName)
+        # else:
+        #     print(f"{TargetName},{Volume_5MA},{Volume_RT}")
 
-
-    # print( "FailCondition = ", bin( Cond1 | Cond2 << 1 | Cond3 << 2 | Cond4 << 3 ) )
+    # 若搜尋特定股票，印出沒找到的條件
+    if AllParam.SearchAllStock == 0:
+        Result = 0
+        for i in range( 0, len(Cond) ):
+            Result |= (Cond[i] << i)
+        print( "FailCondition = ", bin( Result ) )
+        print( df )
 
 # 計算單一隻股票是否突破
 def CalcOneStock( df_AllData : pd.DataFrame, AllParam : cParam, OutputData : cOutputData, StockIndex ):
@@ -190,12 +216,14 @@ def CalcOneStock( df_AllData : pd.DataFrame, AllParam : cParam, OutputData : cOu
     CalcIndicator(df)
     CalcCondition(df, StockIndex, AllParam, OutputData)
 
-def Breakout():
-    AllParam = cParam()
+def Breakout(SearchAllStock, SpecificList):
+    AllParam = cParam(SearchAllStock)
     OutputData = cOutputData()
 
-    # 搜尋特定股票，因yfinance回傳格式，至少要兩隻
-    # AllParam.StockNumList = AllParam.StockNameList = ['3023.TW', "3105.TWO"]
+    # 若要搜尋特定股票，替換掉整個list
+    if SearchAllStock == 0:
+        AllParam.StockNumList = SpecificList
+
 
     # 搜尋所有股票
     for AllListIndex in range( 0, int( len( AllParam.StockNumList ) ) ):
